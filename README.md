@@ -43,7 +43,7 @@ These issues become especially dangerous in multi-threaded code.
 Non-goals
 - ❌ Compile-time lifetime enforcement (requires language support)
 - ❌ Zero-overhead abstraction
-- ❌ Replacing `stdshared_ptr`
+- ❌ Replacing `std::shared_ptr`
 
 ---
 
