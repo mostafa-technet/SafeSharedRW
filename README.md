@@ -4,7 +4,7 @@ SafeSharedRW is a small C++ utility that provides runtime-checked lifetime safet
 
 It is designed to address a common misconception in C++
 
- `stdshared_ptr` is reference-count thread-safe, but not lifetime-safe at use sites.
+ `std::shared_ptr` is reference-count thread-safe, but not lifetime-safe at use sites.
 
 This library demonstrates the strongest guarantees that can be achieved at library level (without changing the C++ language).
 
