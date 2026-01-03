@@ -12,7 +12,7 @@ This library demonstrates the strongest guarantees that can be achieved at libra
 
 ## Motivation
 
-`stdshared_ptr` guarantees
+`std::shared_ptr` guarantees
 - Atomic reference counting
 - Correct destruction when the last owner is released
 
