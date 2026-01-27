@@ -1,76 +1,89 @@
 #pragma once
-
-#include <memory>
 #include <atomic>
+#include <mutex>
 #include <shared_mutex>
 #include <stdexcept>
 #include <utility>
 
 namespace safeshared {
 
+struct object_destroyed : std::runtime_error {
+    object_destroyed() : std::runtime_error("object already destroyed") {}
+};
+
 template <typename T>
 class SafeSharedRW {
 public:
-    explicit SafeSharedRW(T* ptr)
-        : m_ptr(ptr), m_alive(true) {}
-
-    explicit SafeSharedRW(std::shared_ptr<T> ptr)
-        : m_ptr(std::move(ptr)), m_alive(true) {}
+    explicit SafeSharedRW(T* ptr) noexcept
+        : ptr_(ptr), alive_(true) {}
 
     SafeSharedRW(const SafeSharedRW&) = delete;
     SafeSharedRW& operator=(const SafeSharedRW&) = delete;
 
-    SafeSharedRW(SafeSharedRW&& other) noexcept
-        : m_ptr(std::move(other.m_ptr)),
-          m_alive(other.m_alive.load(std::memory_order_acquire)) {
-        other.m_alive.store(false, std::memory_order_release);
-    }
-
-    SafeSharedRW& operator=(SafeSharedRW&& other) noexcept {
-        if (this != &other) {
-            m_ptr = std::move(other.m_ptr);
-            m_alive.store(other.m_alive.load(std::memory_order_acquire),
-                          std::memory_order_release);
-            other.m_alive.store(false, std::memory_order_release);
-        }
-        return *this;
-    }
-
     ~SafeSharedRW() {
-        m_alive.store(false, std::memory_order_release);
+        destroy();
+    }
+
+    // -------------------------
+    // THROWING API
+    // -------------------------
+
+    template <typename F>
+    void read(F&& f) const {
+        std::shared_lock lock(mutex_);
+        if (!alive_.load(std::memory_order_acquire))
+            throw object_destroyed{};
+        std::forward<F>(f)(*ptr_);
     }
 
     template <typename F>
-    void read(F&& fn) const {
-        check_alive();
-        std::shared_lock lock(m_mutex);
-        auto local = m_ptr;
-        fn(*local);
+    void write(F&& f) {
+        std::unique_lock lock(mutex_);
+        if (!alive_.load(std::memory_order_acquire))
+            throw object_destroyed{};
+        std::forward<F>(f)(*ptr_);
+    }
+
+    // -------------------------
+    // NON-THROWING API
+    // -------------------------
+
+    template <typename F>
+    bool try_read(F&& f) const noexcept {
+        std::shared_lock lock(mutex_, std::try_to_lock);
+        if (!lock) return false;
+        if (!alive_.load(std::memory_order_acquire))
+            return false;
+        std::forward<F>(f)(*ptr_);
+        return true;
     }
 
     template <typename F>
-    void write(F&& fn) {
-        check_alive();
-        std::unique_lock lock(m_mutex);
-        auto local = m_ptr;
-        fn(*local);
+    bool try_write(F&& f) noexcept {
+        std::unique_lock lock(mutex_, std::try_to_lock);
+        if (!lock) return false;
+        if (!alive_.load(std::memory_order_acquire))
+            return false;
+        std::forward<F>(f)(*ptr_);
+        return true;
     }
 
-    bool is_alive() const noexcept {
-        return m_alive.load(std::memory_order_acquire);
+    // -------------------------
+    // EXPLICIT DESTROY
+    // -------------------------
+
+    void destroy() noexcept {
+        std::unique_lock lock(mutex_);
+        if (alive_.exchange(false, std::memory_order_acq_rel)) {
+            delete ptr_;
+            ptr_ = nullptr;
+        }
     }
 
 private:
-    void check_alive() const {
-        if (!is_alive()) {
-            throw std::runtime_error(
-                "SafeSharedRW: access after destruction");
-        }
-    }
-
-    std::shared_ptr<T>        m_ptr;
-    std::atomic<bool>        m_alive{false};
-    mutable std::shared_mutex m_mutex;
+    T* ptr_;
+    mutable std::shared_mutex mutex_;
+    std::atomic<bool> alive_;
 };
 
 } // namespace safeshared
